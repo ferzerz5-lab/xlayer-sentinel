@@ -34,7 +34,7 @@ const navItems = [
 
 const projectLinks = {
   github: "https://github.com/your-repo",
-  x: "https://x.com/your-project-handle",
+  x: "https://x.com/SentinelXLayer",
   explorer: activeChain.blockExplorers.default.url,
 };
 

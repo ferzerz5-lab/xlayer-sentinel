@@ -90,6 +90,7 @@ async function callGemini(dataSummary) {
       ],
       generationConfig: {
         responseMimeType: "application/json",
+        maxOutputTokens: 1024,
       },
     }),
   });
@@ -102,7 +103,12 @@ async function callGemini(dataSummary) {
   const data = await res.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error("Gemini returned no content");
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch (parseErr) {
+    console.log("[Sentinel] Gemini returned malformed JSON, raw text:", text);
+    throw new Error("Gemini response was cut off or malformed — try again");
+  }
 }
 
 export async function POST(req) {

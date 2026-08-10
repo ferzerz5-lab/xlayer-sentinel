@@ -1,5 +1,6 @@
 import { createPublicClient, http, formatEther, formatUnits } from "viem";
 import { activeChain } from "../../../lib/chains";
+import { getPoolMarketData } from "../../../lib/okxMarket";
 
 const client = createPublicClient({
   chain: { id: activeChain.id, name: activeChain.name, nativeCurrency: activeChain.nativeCurrency, rpcUrls: activeChain.rpcUrls },
@@ -57,13 +58,20 @@ async function getTokenBalances(address) {
 }
 
 async function getPoolVolumeSignal() {
-  return { available: false };
+  return await getPoolMarketData();
 }
 
 const SYSTEM_PROMPT = `You are Sentinel, a risk-verification agent for wallets on X Layer (OKX's L2).
 Your job is NOT to suggest what to buy. Your job is to flag risk before a user trades or
 holds a position — pool manipulation signals, thin liquidity, concentration risk, contract
-risk. Be honest about data you don't have; never invent specific numbers you weren't given.`;
+risk. Be honest about data you don't have; never invent specific numbers you weren't given.
+Respond ONLY with valid JSON in this exact shape, nothing else:
+{
+  "trust_score": <integer 0-100>,
+  "steps": [ { "title": "...", "detail": "..." } ],
+  "recommendation": "..."
+}
+Include 3 to 5 items in "steps".`;
 
 async function callGemini(dataSummary) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -157,7 +165,8 @@ Wallet address: ${address}
 Native OKB balance: ${nativeBalance ?? "unavailable"}
 Token balances available: ${tokenData.available ? "yes (read directly from X Layer)" : "no"}
 ${tokenData.available ? JSON.stringify(tokenData.positions) : ""}
-Pool volume data available: ${volumeSignal.available ? "yes" : "no (not wired up yet)"}
+Pool/market volume data available: ${volumeSignal.available ? "yes (real data from OKX Market API, X Layer mainnet)" : "no"}
+${volumeSignal.available ? JSON.stringify(volumeSignal.tokens) : ""}
 `.trim();
 
     let parsed;

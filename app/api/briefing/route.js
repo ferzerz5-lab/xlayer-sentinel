@@ -79,11 +79,6 @@ async function getTokenBalances(address) {
 }
 
 async function getPoolVolumeSignal() {
-  // TODO: wire this to OKX's DEX market API (see docs.md) to pull real 24h volume
-  // history for the pool the user is about to trade into, then compute the deviation
-  // from its 30-day average server-side, rather than asking the model to guess.
-  // Left unimplemented here since it needs a specific pool address to query —
-  // pass one in from the frontend once the Actions view targets a real pool.
   return { available: false };
 }
 
@@ -101,7 +96,7 @@ Include 3 to 5 items in "steps".`;
 
 async function callGemini(dataSummary) {
   const apiKey = process.env.GEMINI_API_KEY;
-  const model = "gemini-2.0-flash";
+  const model = "gemini-2.5-flash-lite";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const res = await fetch(url, {

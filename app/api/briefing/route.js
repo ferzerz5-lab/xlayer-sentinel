@@ -1,26 +1,6 @@
 import { createPublicClient, http, formatEther, formatUnits } from "viem";
 import { activeChain } from "../../../lib/chains";
 
-// This route does three things, in order:
-// 1. Reads real onchain state for the given wallet directly from X Layer — native OKB
-//    balance, plus USDC balance via a direct ERC20 contract read. No third-party API key
-//    needed for either: this is the same kind of call your wallet extension makes when it
-//    shows you a token balance, just made server-side. The USDC contract address below is
-//    sourced from Circle's own official docs (developers.circle.com/stablecoins), not
-//    guessed — using the wrong contract address would just silently show wrong data.
-// 2. Optionally pulls recent pool volume from OKX's DEX market API to check for the kind
-//    of irregular-volume pattern the Sentinel is meant to flag.
-// 3. Sends that real data to Gemini and asks it to reason over it, returning a structured
-//    JSON reasoning trail — this is the part that makes the "AI briefing" real instead of
-//    a hardcoded array of strings. Using Gemini's free tier (no card required) here rather
-//    than Claude since that's what's actually available right now — the reasoning logic
-//    and JSON contract are identical either way, and swapping back to Claude later is a
-//    small, contained change to just this one function.
-//
-// If any data source is unavailable, this route degrades gracefully and tells the model
-// what's missing rather than silently faking data — the whole point of a risk-verification
-// agent is that it doesn't lie about its own certainty.
-
 const client = createPublicClient({
   chain: { id: activeChain.id, name: activeChain.name, nativeCurrency: activeChain.nativeCurrency, rpcUrls: activeChain.rpcUrls },
   transport: http(activeChain.rpcUrls.default.http[0]),
@@ -35,12 +15,10 @@ async function getNativeBalance(address) {
   }
 }
 
-// Verified against Circle's official USDC contract address list:
-// https://developers.circle.com/stablecoins/usdc-contract-addresses
 const TRACKED_TOKENS = [
   {
     symbol: "USDC",
-    address: "0xDec90b78111Ba2fc6FC6d84d8B9ec159A2d4b9B3", // X Layer Testnet, Circle-verified
+    address: "0xDec90b78111Ba2fc6FC6d84d8B9ec159A2d4b9B3",
     decimals: 6,
   },
 ];
@@ -96,7 +74,7 @@ Include 3 to 5 items in "steps".`;
 
 async function callGemini(dataSummary) {
   const apiKey = process.env.GEMINI_API_KEY;
-  const model = "gemini-2.5-flash-lite";
+  const model = "gemini-3.5-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const res = await fetch(url, {

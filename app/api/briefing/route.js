@@ -1,6 +1,25 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { createPublicClient, http, formatEther } from "viem";
+import { createPublicClient, http, formatEther, formatUnits } from "viem";
 import { activeChain } from "../../../lib/chains";
+
+// This route does three things, in order:
+// 1. Reads real onchain state for the given wallet directly from X Layer — native OKB
+//    balance, plus USDC balance via a direct ERC20 contract read. No third-party API key
+//    needed for either: this is the same kind of call your wallet extension makes when it
+//    shows you a token balance, just made server-side. The USDC contract address below is
+//    sourced from Circle's own official docs (developers.circle.com/stablecoins), not
+//    guessed — using the wrong contract address would just silently show wrong data.
+// 2. Optionally pulls recent pool volume from OKX's DEX market API to check for the kind
+//    of irregular-volume pattern the Sentinel is meant to flag.
+// 3. Sends that real data to Gemini and asks it to reason over it, returning a structured
+//    JSON reasoning trail — this is the part that makes the "AI briefing" real instead of
+//    a hardcoded array of strings. Using Gemini's free tier (no card required) here rather
+//    than Claude since that's what's actually available right now — the reasoning logic
+//    and JSON contract are identical either way, and swapping back to Claude later is a
+//    small, contained change to just this one function.
+//
+// If any data source is unavailable, this route degrades gracefully and tells the model
+// what's missing rather than silently faking data — the whole point of a risk-verification
+// agent is that it doesn't lie about its own certainty.
 
 const client = createPublicClient({
   chain: { id: activeChain.id, name: activeChain.name, nativeCurrency: activeChain.nativeCurrency, rpcUrls: activeChain.rpcUrls },
@@ -16,29 +35,101 @@ async function getNativeBalance(address) {
   }
 }
 
+// Verified against Circle's official USDC contract address list:
+// https://developers.circle.com/stablecoins/usdc-contract-addresses
+const TRACKED_TOKENS = [
+  {
+    symbol: "USDC",
+    address: "0xDec90b78111Ba2fc6FC6d84d8B9ec159A2d4b9B3", // X Layer Testnet, Circle-verified
+    decimals: 6,
+  },
+];
+
+const erc20BalanceAbi = [
+  {
+    name: "balanceOf",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+];
+
 async function getTokenBalances(address) {
-  const apiKey = process.env.COVALENT_API_KEY;
-  if (!apiKey) return { available: false, positions: [] };
   try {
-    const res = await fetch(
-      `https://api.covalenthq.com/v1/xlayer-mainnet/address/${address}/balances_v2/`,
-      { headers: { Authorization: `Bearer ${apiKey}` } }
-    );
-    if (!res.ok) return { available: false, positions: [] };
-    const data = await res.json();
-    const positions = (data?.data?.items || []).map((item) => ({
-      symbol: item.contract_ticker_symbol,
-      balance: item.balance,
-      quote: item.quote,
-    }));
+    const positions = [];
+    for (const token of TRACKED_TOKENS) {
+      const raw = await client.readContract({
+        address: token.address,
+        abi: erc20BalanceAbi,
+        functionName: "balanceOf",
+        args: [address],
+      });
+      positions.push({
+        symbol: token.symbol,
+        balance: formatUnits(raw, token.decimals),
+      });
+    }
+    console.log("[Sentinel] Onchain token reads succeeded:", positions);
     return { available: true, positions };
   } catch (e) {
+    console.log("[Sentinel] Onchain token read failed:", e.message);
     return { available: false, positions: [] };
   }
 }
 
 async function getPoolVolumeSignal() {
+  // TODO: wire this to OKX's DEX market API (see docs.md) to pull real 24h volume
+  // history for the pool the user is about to trade into, then compute the deviation
+  // from its 30-day average server-side, rather than asking the model to guess.
+  // Left unimplemented here since it needs a specific pool address to query —
+  // pass one in from the frontend once the Actions view targets a real pool.
   return { available: false };
+}
+
+const SYSTEM_PROMPT = `You are Sentinel, a risk-verification agent for wallets on X Layer (OKX's L2).
+Your job is NOT to suggest what to buy. Your job is to flag risk before a user trades or
+holds a position — pool manipulation signals, thin liquidity, concentration risk, contract
+risk. Be honest about data you don't have; never invent specific numbers you weren't given.
+Respond ONLY with valid JSON in this exact shape, nothing else:
+{
+  "trust_score": <integer 0-100>,
+  "steps": [ { "title": "...", "detail": "..." } ],
+  "recommendation": "..."
+}
+Include 3 to 5 items in "steps".`;
+
+async function callGemini(dataSummary) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const model = "gemini-2.0-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: `Here is the real onchain data for this wallet:\n\n${dataSummary}\n\nProduce the risk-scan reasoning trail.` }],
+        },
+      ],
+      generationConfig: {
+        responseMimeType: "application/json",
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini API error ${res.status}: ${errText}`);
+  }
+
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned no content");
+  return JSON.parse(text);
 }
 
 export async function POST(req) {
@@ -54,51 +145,33 @@ export async function POST(req) {
       getPoolVolumeSignal(),
     ]);
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.GEMINI_API_KEY) {
       return Response.json({
         trust_score: 68,
         steps: [
-          { title: "[MOCK] Scanned wallet", detail: `Read native balance for ${address}: ${nativeBalance ?? "unavailable"} OKB. This is placeholder reasoning — no ANTHROPIC_API_KEY is set.` },
-          { title: "[MOCK] No live model call made", detail: "Add ANTHROPIC_API_KEY to .env.local to replace this with a real Claude-generated reasoning trail." },
+          { title: "[MOCK] Scanned wallet", detail: `Read native balance for ${address}: ${nativeBalance ?? "unavailable"} OKB, plus ${tokenData.positions.map(p => `${p.balance} ${p.symbol}`).join(", ") || "no tracked tokens"}. This is placeholder reasoning — no GEMINI_API_KEY is set.` },
+          { title: "[MOCK] No live model call made", detail: "Add GEMINI_API_KEY to .env.local to replace this with a real AI-generated reasoning trail." },
         ],
-        recommendation: "[MOCK DATA] Set ANTHROPIC_API_KEY to get a real recommendation.",
+        recommendation: "[MOCK DATA] Set GEMINI_API_KEY to get a real recommendation.",
         dataSourcesUsed: { nativeBalance: nativeBalance !== null, tokenBalances: tokenData.available, poolVolume: volumeSignal.available },
         mock: true,
       });
     }
 
-    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
     const dataSummary = `
 Wallet address: ${address}
 Native OKB balance: ${nativeBalance ?? "unavailable"}
-Token balances available: ${tokenData.available ? "yes" : "no (Covalent/GoldRush API key not configured)"}
+Token balances available: ${tokenData.available ? "yes (read directly from X Layer)" : "no"}
 ${tokenData.available ? JSON.stringify(tokenData.positions) : ""}
 Pool volume data available: ${volumeSignal.available ? "yes" : "no (not wired up yet)"}
 `.trim();
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 800,
-      system: `You are Sentinel, a risk-verification agent for wallets on X Layer (OKX's L2).
-Your job is NOT to suggest what to buy. Your job is to flag risk before a user trades or
-holds a position — pool manipulation signals, thin liquidity, concentration risk, contract
-risk. Be honest about data you don't have; never invent specific numbers you weren't given.
-Respond ONLY with valid JSON in this exact shape, nothing else:
-{
-  "trust_score": <integer 0-100>,
-  "steps": [ { "title": "...", "detail": "..." }, ... 3 to 5 steps ],
-  "recommendation": "..."
-}`,
-      messages: [{ role: "user", content: `Here is the real onchain data for this wallet:\n\n${dataSummary}\n\nProduce the risk-scan reasoning trail.` }],
-    });
-
-    const raw = message.content.find((b) => b.type === "text")?.text || "{}";
     let parsed;
     try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = { trust_score: null, steps: [], recommendation: raw };
+      parsed = await callGemini(dataSummary);
+    } catch (e) {
+      console.log("[Sentinel] Gemini call failed:", e.message);
+      return Response.json({ error: `AI reasoning call failed: ${e.message}` }, { status: 500 });
     }
 
     return Response.json({

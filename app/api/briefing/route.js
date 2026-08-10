@@ -63,14 +63,7 @@ async function getPoolVolumeSignal() {
 const SYSTEM_PROMPT = `You are Sentinel, a risk-verification agent for wallets on X Layer (OKX's L2).
 Your job is NOT to suggest what to buy. Your job is to flag risk before a user trades or
 holds a position — pool manipulation signals, thin liquidity, concentration risk, contract
-risk. Be honest about data you don't have; never invent specific numbers you weren't given.
-Respond ONLY with valid JSON in this exact shape, nothing else:
-{
-  "trust_score": <integer 0-100>,
-  "steps": [ { "title": "...", "detail": "..." } ],
-  "recommendation": "..."
-}
-Include 3 to 5 items in "steps".`;
+risk. Be honest about data you don't have; never invent specific numbers you weren't given.`;
 
 async function callGemini(dataSummary) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -90,6 +83,25 @@ async function callGemini(dataSummary) {
       ],
       generationConfig: {
         responseMimeType: "application/json",
+        responseSchema: {
+          type: "object",
+          properties: {
+            trust_score: { type: "integer" },
+            steps: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  detail: { type: "string" },
+                },
+                required: ["title", "detail"],
+              },
+            },
+            recommendation: { type: "string" },
+          },
+          required: ["trust_score", "steps", "recommendation"],
+        },
         maxOutputTokens: 4096,
       },
     }),

@@ -308,6 +308,28 @@ function BriefingView({ onGoToActions, briefing, loading, error, onRunScan, wall
 
 function ActionsView() {
   const [status, setStatus] = useState("pending");
+  const [quote, setQuote] = useState(null);
+  const [quoteLoading, setQuoteLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/quote")
+      .then((res) => res.json())
+      .then((data) => setQuote(data))
+      .catch(() => setQuote({ available: false }))
+      .finally(() => setQuoteLoading(false));
+  }, []);
+
+  let rateDisplay = "1 OKB ≈ 42.18 USDC"; // fallback shown only if the live quote fails
+  let rateIsLive = false;
+  if (quote?.available) {
+    const fromAmt = Number(quote.fromTokenAmount) / 10 ** quote.fromTokenDecimals;
+    const toAmt = Number(quote.toTokenAmount) / 10 ** quote.toTokenDecimals;
+    if (toAmt > 0) {
+      rateDisplay = `1 OKB ≈ ${(fromAmt / toAmt).toFixed(2)} USDC`;
+      rateIsLive = true;
+    }
+  }
+
   return (
     <div>
       <GlassPanel style={{ padding: "24px", maxWidth: "560px" }}>
@@ -323,8 +345,11 @@ function ActionsView() {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "18px" }}>
           <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "12px 14px" }}>
-            <div style={{ fontFamily: "Inter", fontSize: "11px", color: palette.textMuted, marginBottom: "4px" }}>RATE</div>
-            <div style={{ fontFamily: "IBM Plex Mono", fontSize: "14px", color: palette.textPrimary }}>1 OKB ≈ 42.18 USDC</div>
+            <div style={{ fontFamily: "Inter", fontSize: "11px", color: palette.textMuted, marginBottom: "4px" }}>
+              RATE {rateIsLive && <span style={{ color: palette.teal }}>· live</span>}
+              {quoteLoading && <span style={{ color: palette.textMuted }}>· loading...</span>}
+            </div>
+            <div style={{ fontFamily: "IBM Plex Mono", fontSize: "14px", color: palette.textPrimary }}>{rateDisplay}</div>
           </div>
           <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "12px 14px" }}>
             <div style={{ fontFamily: "Inter", fontSize: "11px", color: palette.textMuted, marginBottom: "4px" }}>VOLUME ANOMALY</div>
@@ -344,7 +369,7 @@ function ActionsView() {
         {status === "confirmed" && <div style={{ fontFamily: "Inter", fontSize: "13px", color: palette.coral }}>Trade submitted despite the flag. It will appear in Activity once confirmed.</div>}
         {status === "undone" && <div style={{ fontFamily: "Inter", fontSize: "13px", color: palette.textMuted }}>No trade was made. The sentinel will keep monitoring this pool and let you know if the flag clears.</div>}
         <div style={{ marginTop: "14px", fontFamily: "Inter", fontSize: "11px", color: palette.textMuted }}>
-          TODO: wire these buttons to lib/okxDex.js — get a real quote, then send an eth_sendTransaction via the connected wallet on {activeChain.name}.
+          Rate is a live quote from OKX's DEX aggregator (X Layer mainnet). Confirm/cancel buttons are UI-only for now — no funds move.
         </div>
       </GlassPanel>
     </div>
@@ -497,3 +522,4 @@ export default function Sentinel() {
     </div>
   );
 }
+

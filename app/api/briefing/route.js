@@ -90,7 +90,7 @@ async function callGemini(dataSummary) {
       ],
       generationConfig: {
         responseMimeType: "application/json",
-        maxOutputTokens: 1024,
+        maxOutputTokens: 4096,
       },
     }),
   });
@@ -101,13 +101,16 @@ async function callGemini(dataSummary) {
   }
 
   const data = await res.json();
+  const finishReason = data?.candidates?.[0]?.finishReason;
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned no content");
+  console.log("[Sentinel] Gemini finishReason:", finishReason);
+  console.log("[Sentinel] Gemini raw response:", JSON.stringify(data).slice(0, 2000));
+  if (!text) throw new Error(`Gemini returned no content (finishReason: ${finishReason || "unknown"})`);
   try {
     return JSON.parse(text);
   } catch (parseErr) {
     console.log("[Sentinel] Gemini returned malformed JSON, raw text:", text);
-    throw new Error("Gemini response was cut off or malformed — try again");
+    throw new Error(`Gemini response was cut off or malformed (finishReason: ${finishReason || "unknown"}) — try again`);
   }
 }
 

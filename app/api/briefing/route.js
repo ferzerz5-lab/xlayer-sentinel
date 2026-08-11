@@ -19,7 +19,7 @@ async function getNativeBalance(address) {
 const TRACKED_TOKENS = [
   {
     symbol: "USDC",
-    address: "0xDec90b78111Ba2fc6FC6d84d8B9ec159A2d4b9B3",
+    address: "0xB6CEceAB302E2E4948951eE7843FC24E92933061",
     decimals: 6,
   },
 ];

@@ -34,7 +34,7 @@ const navItems = [
 
 const projectLinks = {
   github: "https://github.com/your-repo",
-  x: "https://x.com/SentinelXLayer",
+  x: "https://x.com/Sentinel_XLayer",
   explorer: activeChain.blockExplorers.default.url,
 };
 
@@ -199,7 +199,7 @@ function OverviewView({ pulse, onNavigate, briefing, walletAddress }) {
     <div>
       <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", marginBottom: "20px" }}>
         <GlassPanel style={{ padding: "28px", flex: "1 1 340px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "28px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "28px", flexWrap: "wrap" }}>
             <div onClick={() => setHealthOpen((v) => !v)} style={{ position: "relative", width: "168px", height: "168px", flexShrink: 0, cursor: "pointer" }}>
               <SignalRing pulse={pulse} highlight={healthOpen} score={trustScore} />
               <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -420,10 +420,18 @@ export default function Sentinel() {
   const [view, setView] = useState("overview");
   const [pulse, setPulse] = useState(false);
   const wallet = useWallet();
+  const [isMobile, setIsMobile] = useState(false);
 
   const [briefing, setBriefing] = useState(null);
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [briefingError, setBriefingError] = useState(null);
+
+  useEffect(() => {
+    const checkSize = () => setIsMobile(window.innerWidth < 768);
+    checkSize();
+    window.addEventListener("resize", checkSize);
+    return () => window.removeEventListener("resize", checkSize);
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -461,37 +469,51 @@ export default function Sentinel() {
   }, [wallet.address, wallet.isOnCorrectChain]);
 
   return (
-    <div style={{ background: palette.bg, minHeight: "100vh", display: "flex", fontFamily: "Inter" }}>
-      <div style={{ width: "220px", flexShrink: 0, background: palette.bgElevated, borderRight: `1px solid ${palette.panelBorder}`, padding: "24px 16px", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "0 8px", marginBottom: "32px" }}>
+    <div style={{ background: palette.bg, minHeight: "100vh", display: "flex", flexDirection: isMobile ? "column" : "row", fontFamily: "Inter" }}>
+      <div style={{
+        width: isMobile ? "100%" : "220px",
+        flexShrink: 0,
+        background: palette.bgElevated,
+        borderRight: isMobile ? "none" : `1px solid ${palette.panelBorder}`,
+        borderBottom: isMobile ? `1px solid ${palette.panelBorder}` : "none",
+        padding: isMobile ? "16px" : "24px 16px",
+        display: "flex",
+        flexDirection: isMobile ? "row" : "column",
+        alignItems: isMobile ? "center" : "stretch",
+        justifyContent: isMobile ? "space-between" : "flex-start",
+        gap: isMobile ? "12px" : 0,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: isMobile ? 0 : "0 8px", marginBottom: isMobile ? 0 : "32px", flexShrink: 0 }}>
           <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: `linear-gradient(135deg, ${palette.indigo}, ${palette.teal})`, flexShrink: 0 }} />
           <div style={{ fontFamily: "Space Grotesk", fontSize: "15px", fontWeight: 600, color: palette.textPrimary }}>Sentinel</div>
         </div>
-        <nav style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+        <nav style={{ display: "flex", flexDirection: isMobile ? "row" : "column", gap: "4px", overflowX: isMobile ? "auto" : "visible", flex: isMobile ? 1 : "none" }}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = view === item.id;
             return (
-              <button key={item.id} onClick={() => setView(item.id)} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", borderRadius: "10px", border: "none", background: active ? palette.indigoSoft : "transparent", color: active ? palette.indigo : palette.textSecondary, fontFamily: "Inter", fontSize: "13px", fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+              <button key={item.id} onClick={() => setView(item.id)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: isMobile ? "8px 10px" : "10px 12px", borderRadius: "10px", border: "none", background: active ? palette.indigoSoft : "transparent", color: active ? palette.indigo : palette.textSecondary, fontFamily: "Inter", fontSize: isMobile ? "12px" : "13px", fontWeight: 500, cursor: "pointer", textAlign: "left", whiteSpace: "nowrap", flexShrink: 0 }}>
                 <Icon size={16} />
-                {item.label}
+                {!isMobile && item.label}
               </button>
             );
           })}
         </nav>
-        <div style={{ marginTop: "auto", padding: "12px", background: palette.bg, borderRadius: "10px" }}>
-          <div style={{ fontFamily: "Inter", fontSize: "11px", color: palette.textMuted, marginBottom: "4px" }}>NETWORK</div>
-          <div style={{ fontFamily: "Inter", fontSize: "12px", color: palette.textSecondary, display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: wallet.isOnCorrectChain ? palette.teal : palette.textMuted, display: "inline-block" }} />
-            {activeChain.name}
+        {!isMobile && (
+          <div style={{ marginTop: "auto", padding: "12px", background: palette.bg, borderRadius: "10px" }}>
+            <div style={{ fontFamily: "Inter", fontSize: "11px", color: palette.textMuted, marginBottom: "4px" }}>NETWORK</div>
+            <div style={{ fontFamily: "Inter", fontSize: "12px", color: palette.textSecondary, display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: wallet.isOnCorrectChain ? palette.teal : palette.textMuted, display: "inline-block" }} />
+              {activeChain.name}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
-      <div style={{ flex: 1, padding: "28px 32px", overflow: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "24px" }}>
+      <div style={{ flex: 1, padding: isMobile ? "16px" : "28px 32px", overflow: "auto", minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "flex-start", gap: isMobile ? "12px" : 0, marginBottom: "24px" }}>
           <div>
-            <div style={{ fontFamily: "Space Grotesk", fontSize: "20px", fontWeight: 600, color: palette.textPrimary }}>{navItems.find((n) => n.id === view)?.label}</div>
+            <div style={{ fontFamily: "Space Grotesk", fontSize: isMobile ? "18px" : "20px", fontWeight: 600, color: palette.textPrimary }}>{navItems.find((n) => n.id === view)?.label}</div>
             <div style={{ fontFamily: "Inter", fontSize: "13px", color: palette.textMuted, marginTop: "2px" }}>
               {wallet.address ? "Watching this wallet on X Layer" : "Connect a wallet for the sentinel to monitor"}
             </div>
@@ -522,4 +544,3 @@ export default function Sentinel() {
     </div>
   );
 }
-
